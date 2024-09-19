@@ -8,12 +8,12 @@ const axios = require('axios');
 
 const router = express.Router();
 const beaconController = require('../controllers/beaconController');
-const { predictZone } = require('../controllers/flaskController'); // Flask 컨트롤러 함수 연결
+//const { predictZone } = require('../controllers/flaskController'); // Flask 컨트롤러 함수 연결
 
 router.post('/current_rssi', beaconController.addCurrentRSSI);
 
 // 클라이언트의 요청을 받아서 컨트롤러로 전달
-router.post('/predict-zone', predictZone);
+//router.post('/predict-zone', predictZone);
 
 module.exports = router;
 

@@ -1,30 +1,60 @@
-from flask import Flask, request, jsonify
-import pandas as pd
-from zone_classifier import process_real_time_data  # 모델 예측 함수 가져오기
+from flask import Flask
+from flask_socketio import SocketIO, emit
+from flask_cors import CORS
+import json
 
 app = Flask(__name__)
+CORS(app)  # CORS 미들웨어 설정
 
-# 모델 파일 및 레이블 인코더 파일 경로
-model_file = './0910_aver_model.pkl'  # 학습된 모델 파일 경로
-encoder_file = './0910_label_encoder.pkl'  # 레이블 인코더 파일 경로
+socketio = SocketIO(app, cors_allowed_origins="*")  # 모든 출처 허용
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    # 클라이언트(Node.js)로부터 데이터를 받음
-    data = request.json.get('features', [])
+@app.route('/')
+def index():
+    return 'WebSocket server is running!'
 
-    # 데이터가 비어있다면 오류 반환
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
 
-    # 비콘 데이터를 pandas DataFrame으로 변환
-    beacon_data = pd.DataFrame(data)
+@socketio.on('message')
+def handle_message(message):
+    try:
+        # 받은 메시지가 JSON 형식이라고 가정하고 파싱
+        data = json.loads(message)
+        print('Received data:', data)
 
-    # 모델을 사용해 예측 수행
-    predicted_zones = process_real_time_data(beacon_data, model_file, encoder_file)
+        # 비콘 데이터 처리 로직
+        if isinstance(data, list) and len(data) > 0:
+            beacon_data = data[0]  # 첫 번째 데이터 사용 (배열로 전송되므로)
+            print(f"Timestamp: {beacon_data['TimeStamp']}")
+            for i in range(1, 19):  # B1~B18까지 출력
+                beacon_id = f'B{i}'
+                print(f'{beacon_id}: {beacon_data[beacon_id]}')
 
-    # 예측 결과를 반환
-    return jsonify({'predicted_zone': predicted_zones[0] if predicted_zones else 'No prediction'})
+            # Node.js에서 전달된 scanner_id가 있다고 가정
+            scanner_id = beacon_data.get('scanner_id', None)
+            if scanner_id is None:
+                print('scanner_id not found in the message')
+                return
+            
+            # 받은 scanner_id 값을 이용해 predicted_zone 생성
+            predicted_zone = {
+                'scanner_id': scanner_id,  # 받은 scanner_id를 사용
+                'floor': 1,                # 예시로 1층
+                'zone': 'Zone A'           # 예측된 구역
+            }
+
+            # 클라이언트에게 예측된 데이터를 전송
+            emit('message', json.dumps(predicted_zone))
+
+        else:
+            print("Received data is not in the expected format")
+    except json.JSONDecodeError as e:
+        print('Failed to parse message as JSON:', str(e))
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected')
 
 if __name__ == '__main__':
-    app.run(port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
