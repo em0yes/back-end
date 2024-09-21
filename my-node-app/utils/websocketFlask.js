@@ -1,93 +1,107 @@
-//const WebSocket = require('ws');
 const io = require('socket.io-client');
 const Beacon = require('../models/beaconQuery'); // DB 쿼리 함수
+
+const scannerQueues = {};  // scanner_id별로 큐를 저장할 객체
 
 // Socket.IO 클라이언트 설정
 function setupWebSocketFlask() {
     const socket = io('http://localhost:5000');  // Flask Socket.IO 서버 연결
 
-    socket.on('connect', () => {
-        console.log('Connected to Flask Socket.IO server');
+    socket.on('connect', () => { 
+        console.log('🌵 Flask Socket.IO 서버에 연결되었습니다 🌵');
 
         // 주기적으로 DB에서 새로운 데이터를 확인
         setInterval(async () => {
             try {
                 Beacon.getUnsentData((err, result) => {
                     if (err) {
-                        console.error('Error fetching data:', err);
+                        console.error('데이터 가져오기 중 오류 발생:', err);
                         return;
                     }
 
-                    // 새로운 데이터가 있으면 처리
                     if (result.length > 0) {
-                        // 데이터를 변환하는 로직
-                        let beaconRow = {
-                            "TimeStamp": result[0].timestamp,  // 최신 데이터의 타임스탬프
-                            "scanner_id": result[0].scanner_id, // scanner_id 추가
-                            "B1": 0, "B2": 0, "B3": 0, "B4": 0, "B5": 0, "B6": 0,
-                            "B7": 0, "B8": 0, "B9": 0, "B10": 0, "B11": 0,
-                            "B12": 0, "B13": 0, "B14": 0, "B15": 0, "B16": 0,
-                            "B17": 0, "B18": 0
-                        };
-
                         result.forEach(row => {
-                            // 고정 비콘 ID에 맞춰 RSSI 값을 할당
-                            if (row.fixed_beacon_id >= 1 && row.fixed_beacon_id <= 18) {
-                                beaconRow[`B${row.fixed_beacon_id}`] = row.rssi;
+                            const scanner_id = row.scanner_id;
+                            if (!scannerQueues[scanner_id]) {
+                                scannerQueues[scanner_id] = [];
                             }
-                        });
+                            
+                            // 스캐너별 큐에 데이터 추가
+                            scannerQueues[scanner_id].push(row);
 
-                        const transformedData = [beaconRow]; // 배열에 변환된 데이터를 담음
-                        const beaconData = JSON.stringify(transformedData); // JSON 문자열로 변환
+                            // 큐에 데이터 추가 시 콘솔 출력
+                            console.log(`스캐너 ${scanner_id}에 데이터 추가됨:`, row);
 
-                        console.log('Sending transformed data to Flask:', beaconData);
-                        socket.emit('message', beaconData); // Socket.IO로 데이터 전송
-                        
-                        // 데이터 전송 후 `send_flag`를 true로 업데이트
-                        const ids = result.map(row => row.id); // 전송한 데이터의 ID들
-                        Beacon.updateSendFlag(ids, (updateErr) => {
-                            if (updateErr) {
-                                console.error('Error updating send_flag:', updateErr);
-                            } else {
-                                console.log(`send_flag updated for IDs: ${ids}`);
+                            if (scannerQueues[scanner_id].length === 5) {
+                                // 5개 쌓이면 Flask로 전송
+                                console.log(`스캐너 ${scanner_id}의 데이터 5개를 Flask로 전송합니다.`);
+                                sendToFlask(socket, scannerQueues[scanner_id]);
+
+                                // 큐에서 가장 오래된 데이터 삭제 (FIFO)
+                                scannerQueues[scanner_id].shift();
                             }
                         });
                     }
                 });
             } catch (error) {
-                console.error('Error processing data:', error);
+                console.error('데이터 처리 중 오류 발생:', error);
             }
-        }, 1000); // 1초마다 새로운 데이터 확인
+        }, 500); // 0.5초마다 새로운 데이터 확인
     });
 
-    // Flask 서버로부터 예측된 데이터 수신
     socket.on('message', (data) => {
-        console.log('Received from Flask:', data);
-        const predictedData = JSON.parse(data); // 수신된 데이터를 JSON으로 파싱
-
-        // 예측 결과를 estimated_locations 테이블에 삽입
-        const estimatedData = {
+        const predictedData = JSON.parse(data);
+        console.log('Flask로부터 받은 예측 결과:', predictedData);
+        Beacon.insertEstimatedLocation({
             scanner_id: predictedData.scanner_id,
             floor: predictedData.floor,
             zone: predictedData.zone,
             timestamp: new Date()
-        };
-
-        Beacon.insertEstimatedLocation(estimatedData, (insertErr) => {
-            if (insertErr) {
-                console.error('Error inserting into estimated_locations:', insertErr);
-            } else {
-                console.log('Predicted zone inserted into estimated_locations');
+        }, (err) => {
+            if (err) {
+                console.error('estimated_locations 테이블에 삽입 중 오류 발생:', err);
             }
         });
     });
 
     socket.on('close', () => {
-        console.log('Disconnected from Flask WebSocket server');
+        console.log('Flask WebSocket 서버와의 연결이 종료되었습니다.');
     });
 
     socket.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        console.error('WebSocket 오류 발생:', error);
+    });
+}
+
+// Flask 서버로 데이터 전송
+function sendToFlask(socket, queue) {
+    const transformedData = queue.map(row => {
+        let beaconRow = {
+            "TimeStamp": row.timestamp,
+            "scanner_id": row.scanner_id,
+            "B1": 0, "B2": 0, "B3": 0, "B4": 0, "B5": 0, "B6": 0,
+            "B7": 0, "B8": 0, "B9": 0, "B10": 0, "B11": 0,
+            "B12": 0, "B13": 0, "B14": 0, "B15": 0, "B16": 0,
+            "B17": 0, "B18": 0
+        };
+        if (row.fixed_beacon_id >= 1 && row.fixed_beacon_id <= 18) {
+            beaconRow[`B${row.fixed_beacon_id}`] = row.rssi;
+        }
+        return beaconRow;
+    });
+
+    const beaconData = JSON.stringify(transformedData);
+    console.log(`스캐너 ${queue[0].scanner_id}의 데이터를 Flask로 전송 중:`, beaconData);
+    socket.emit('message', beaconData);
+
+    // 데이터 전송 후 `send_flag`를 true로 업데이트
+    const ids = queue.map(row => row.id);
+    Beacon.updateSendFlag(ids, (updateErr) => {
+        if (updateErr) {
+            console.error('send_flag 업데이트 중 오류 발생:', updateErr);
+        } else {
+            console.log(`send_flag가 다음 ID에 대해 업데이트됨: ${ids}`);
+        }
     });
 }
 

@@ -7,7 +7,6 @@ const setupWebSocketClient = require('./utils/websocketClient.js'); // Web 클�
 const setupWebSocketFlask = require('./utils/websocketFlask.js'); // 수정된 웹소켓 클라이언트 모듈 불러오기
 
 const app = express();
-const server = http.createServer(app); // HTTP 서버 생성
 
 app.use(express.static('public'));
 app.use(bodyParser.json());
@@ -21,10 +20,10 @@ app.get('/', (req, res) => {
 });
 
 
-// WebSocket 클라이언트 설정 호출
-setupWebSocketClient(server);
+// WebSocket 클라이언트, flask 설정 호출
+setupWebSocketClient();
 setupWebSocketFlask();
 
-server.listen(8080, () => {
+app.listen(8080, () => {
     console.log('Server running on port 8080');
 });
