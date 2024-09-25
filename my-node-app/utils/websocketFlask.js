@@ -32,9 +32,9 @@ function setupWebSocketFlask() {
                             // 큐에 데이터 추가 시 콘솔 출력
                             console.log(`스캐너 ${scanner_id}에 데이터 추가됨:`, row);
 
-                            if (scannerQueues[scanner_id].length === 5) {
-                                // 5개 쌓이면 Flask로 전송
-                                console.log(`스캐너 ${scanner_id}의 데이터 5개를 Flask로 전송합니다.`);
+                            if (scannerQueues[scanner_id].length === 5) {  // 5 -> 10으로 수정
+                                // 10개 쌓이면 Flask로 전송
+                                console.log(`스캐너 ${scanner_id}의 데이터 10개를 Flask로 전송합니다.`);
                                 sendToFlask(socket, scannerQueues[scanner_id]);
 
                                 // 큐에서 가장 오래된 데이터 삭제 (FIFO)

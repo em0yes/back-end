@@ -72,7 +72,7 @@ function setupWebSocketClient() {
             }).catch(error => {
                 console.error('Error fetching data:', error);
             });
-        }, 5000); // 5초마다 데이터 확인
+        }, 500); 
 
         socket.on('disconnect', () => {
             console.log('🦕 Client disconnected 🦕');
