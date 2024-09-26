@@ -9,8 +9,10 @@
     "ws": "^8.18.0"
   },
   "scripts": {
-    "start": "concurrently \"nodemon app.js\" \"python ../flask_server/flask_server.py\""
-  },
+  "start": "concurrently \"nodemon app.js\" \"cd ../flask_server && gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 flask_server:app\""
+}
+
+,
   "devDependencies": {
     "concurrently": "^9.0.1",
     "nodemon": "^3.1.4"

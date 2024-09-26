@@ -8,7 +8,6 @@ const setupWebSocketFlask = require('./utils/websocketFlask.js'); // 수정된 �
 
 const app = express();
 
-app.use(express.static('public'));
 app.use(bodyParser.json());
 app.use('/api', require('./routes/index.js')); // 라우팅
 

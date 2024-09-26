@@ -15,8 +15,8 @@ socketio = SocketIO(app, cors_allowed_origins="*")  # 모든 출처 허용
 print(f"현재 실행 경로: {os.getcwd()}")
 # 현재 실행 경로 확인
 base_path = os.path.dirname(os.path.realpath(__file__))  # 현재 파일의 절대 경로
-model_path = os.path.join(base_path, 'RF_model.pkl')
-encoder_path = os.path.join(base_path, 'RF_encoder.pkl')
+model_path = os.path.join(base_path, 'RF_model0925.pkl')
+encoder_path = os.path.join(base_path, 'RF_label_encoder0925.pkl')
 
 print(f"모델 파일 경로: {model_path}")  # 경로가 올바른지 출력
 print(f"인코더 파일 경로: {encoder_path}")
@@ -44,27 +44,26 @@ def handle_message(message):
         print('Received data:', data)
 
         # 비콘 데이터 처리 로직
-        if isinstance(data, list) and len(data) ==5:  # 5개의 데이터가 들어왔는지 확인
-            # 각 B1~B18의 값을 평균내기 위한 배열 초기화
-            beacon_averages = {f'B{i}': [] for i in range(1, 19)}
+        if isinstance(data, list) and len(data) == 5:  # 5개의 데이터가 들어왔는지 확인
+            beacon_averages = {'B1': [], 'B2': [], 'B3': [], 'B4': [], 'B5': []}
             scanner_id = None  # scanner_id 저장
 
-            # 5개의 데이터에서 B1~B18 값을 추출하여 평균을 계산
+            # 5개의 데이터에서 B1, B2, B3, B4, B5 값을 추출하여 평균을 계산
             for beacon_data in data:
                 if scanner_id is None:
                     scanner_id = beacon_data.get('scanner_id', None)  # scanner_id 설정
-                for i in range(1, 19):
-                    beacon_id = f'B{i}'
+                for beacon_id in ['B1', 'B2', 'B3', 'B4', 'B5']:
                     beacon_value = beacon_data[beacon_id]
                     if beacon_value != 0:  # 0을 결측치로 간주하고 제외
                         beacon_averages[beacon_id].append(beacon_value)
 
-            # B1~B18의 평균값 계산 (0이 아닌 값들만 사용)
-            averaged_data = [np.mean(beacon_averages[f'B{i}']) if len(beacon_averages[f'B{i}']) > 0 else 0 for i in range(1, 19)]
-            print(f"10개 데이터 평균 (0 제외): {averaged_data}")
+            # 평균값 계산 (0이 아닌 값들만 사용, 0은 결측치)
+            averaged_data = [np.mean(beacon_averages[beacon_id]) if len(beacon_averages[beacon_id]) > 0 else 0 
+                             for beacon_id in ['B1', 'B2', 'B3', 'B4', 'B5']]
+            #print(f"5개 비콘의 평균 데이터 (0 제외): {averaged_data}")
 
             # 학습 때 사용된 feature 이름을 동일하게 사용
-            feature_names = [f'B{i}' for i in range(1, 19)]
+            feature_names = ['B1', 'B2', 'B3', 'B4', 'B5']
             model_input = pd.DataFrame([averaged_data], columns=feature_names)  # 입력 데이터를 DataFrame으로 변환
 
             # 모델을 사용하여 예측
@@ -74,7 +73,7 @@ def handle_message(message):
             # 예측된 데이터를 Node.js 서버로 전송
             predicted_result = {
                 'scanner_id': scanner_id,  # 받은 scanner_id를 사용
-                'floor': 1,                # 예시로 1층
+                'floor': 3,                # 일단은 3층
                 'zone': predicted_zone,     # 모델이 예측한 구역
                 'mean': averaged_data
             }
@@ -83,7 +82,7 @@ def handle_message(message):
             emit('message', json.dumps(predicted_result))
 
         else:
-            print("10개의 데이터가 입력되지 않았습니다.")
+            print("5개의 데이터가 입력되지 않았습니다.")
     except json.JSONDecodeError as e:
         print('Failed to parse message as JSON:', str(e))
 

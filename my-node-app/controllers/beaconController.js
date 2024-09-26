@@ -1,3 +1,5 @@
+//addCurrentRSSI 
+//수신데이터를 current_rssi_measurements에 insert하는 작업
 const connection = require('../config/db');
 
 exports.addCurrentRSSI = (req, res) => {
@@ -46,7 +48,7 @@ exports.addCurrentRSSI = (req, res) => {
                     return;
                 }
 
-                console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:', req.body);
+                console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId ,'번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId , '번');
                 res.status(200).send('Data inserted successfully');
             });
         });

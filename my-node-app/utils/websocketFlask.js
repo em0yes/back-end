@@ -25,19 +25,20 @@ function setupWebSocketFlask() {
                             if (!scannerQueues[scanner_id]) {
                                 scannerQueues[scanner_id] = [];
                             }
-                            
-                            // 스캐너별 큐에 데이터 추가
-                            scannerQueues[scanner_id].push(row);
 
-                            // 큐에 데이터 추가 시 콘솔 출력
-                            console.log(`스캐너 ${scanner_id}에 데이터 추가됨:`, row);
+                            // 같은 데이터가 큐에 이미 있는지 확인하여 중복 삽입 방지
+                            if (!scannerQueues[scanner_id].some(item => item.id === row.id)) {
+                                // 스캐너별 큐에 데이터 추가
+                                scannerQueues[scanner_id].push(row);
+                                console.log(`스캐너 ${scanner_id}에 데이터 추가됨:`, row);
+                            }
 
-                            if (scannerQueues[scanner_id].length === 5) {  // 5 -> 10으로 수정
-                                // 10개 쌓이면 Flask로 전송
-                                console.log(`스캐너 ${scanner_id}의 데이터 10개를 Flask로 전송합니다.`);
-                                sendToFlask(socket, scannerQueues[scanner_id]);
+                            if (scannerQueues[scanner_id].length >= 5) {
+                                // 7개 쌓이면 Flask로 전송
+                                console.log(`스캐너 ${scanner_id}의 데이터 5개를 Flask로 전송합니다.`);
+                                sendToFlask(socket, scannerQueues[scanner_id], scanner_id);
 
-                                // 큐에서 가장 오래된 데이터 삭제 (FIFO)
+                                //큐에서 가장 오래된 데이터 한 개만 삭제
                                 scannerQueues[scanner_id].shift();
                             }
                         });
@@ -46,17 +47,17 @@ function setupWebSocketFlask() {
             } catch (error) {
                 console.error('데이터 처리 중 오류 발생:', error);
             }
-        }, 500); // 0.5초마다 새로운 데이터 확인
+        }, 1000); // 1초마다 새로운 데이터 확인
     });
 
+
     socket.on('message', (data) => {
-        const predictedData = JSON.parse(data);
-        console.log('Flask로부터 받은 예측 결과:', predictedData);
+        const predictedData = JSON.parse(data); 
+        console.log('🥑 Flask로부터 받은 예측 결과:', predictedData.zone, '🥑' );
         Beacon.insertEstimatedLocation({
             scanner_id: predictedData.scanner_id,
             floor: predictedData.floor,
             zone: predictedData.zone,
-            timestamp: new Date()
         }, (err) => {
             if (err) {
                 console.error('estimated_locations 테이블에 삽입 중 오류 발생:', err);
@@ -79,14 +80,13 @@ function sendToFlask(socket, queue) {
         let beaconRow = {
             "TimeStamp": row.timestamp,
             "scanner_id": row.scanner_id,
-            "B1": 0, "B2": 0, "B3": 0, "B4": 0, "B5": 0, "B6": 0,
-            "B7": 0, "B8": 0, "B9": 0, "B10": 0, "B11": 0,
-            "B12": 0, "B13": 0, "B14": 0, "B15": 0, "B16": 0,
-            "B17": 0, "B18": 0
+            "B1": 0, "B2": 0, "B3": 0, "B4": 0, "B5": 0 // 필요한 비콘 ID만 포함
         };
-        if (row.fixed_beacon_id >= 1 && row.fixed_beacon_id <= 18) {
+        
+        if ([1, 2, 3, 4, 5].includes(row.fixed_beacon_id)) {
             beaconRow[`B${row.fixed_beacon_id}`] = row.rssi;
         }
+
         return beaconRow;
     });
 
