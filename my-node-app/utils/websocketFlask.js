@@ -39,7 +39,11 @@ function setupWebSocketFlask() {
                                 sendToFlask(socket, scannerQueues[scanner_id], scanner_id);
 
                                 //큐에서 가장 오래된 데이터 한 개만 삭제
-                                scannerQueues[scanner_id].shift();
+                                //scannerQueues[scanner_id].shift();
+                                //scannerQueues[scanner_id].shift();
+
+                                scannerQueues[scanner_id].splice(0, 2); // 0번 인덱스부터 두 개의 데이터 제거
+
                             }
                         });
                     }
@@ -58,6 +62,7 @@ function setupWebSocketFlask() {
             scanner_id: predictedData.scanner_id,
             floor: predictedData.floor,
             zone: predictedData.zone,
+            timestamp: new Date()
         }, (err) => {
             if (err) {
                 console.error('estimated_locations 테이블에 삽입 중 오류 발생:', err);

@@ -10,6 +10,8 @@ const app = express();
 
 app.use(bodyParser.json());
 app.use('/api', require('./routes/index.js')); // 라우팅
+app.use('/api/admin', require('./routes/adminRoutes.js')); // 사용자 관련 API 라우트
+app.use('/api/worker', require('./routes/workerRoutes.js')); // 사용자 관련 API 라우트
 
 // public 폴더의 파일을 정적 파일로 제공
 app.use(express.static('public'));

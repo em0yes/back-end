@@ -42,8 +42,20 @@ Beacon.updateSendFlag2 = function(timestamp, callback) {
 
 
 // 전송되지 않은 비콘 데이터를 가져오는 함수
+// Beacon.getUnsentData2 = (callback) => {
+//     const query = 'SELECT * FROM estimated_locations WHERE send_flag = FALSE ORDER BY timestamp ASC LIMIT 18';
+//     connection.query(query, callback);
+// };
+
 Beacon.getUnsentData2 = (callback) => {
-    const query = 'SELECT * FROM estimated_locations WHERE send_flag = FALSE ORDER BY timestamp ASC LIMIT 18';
+    const query = `
+        SELECT el.*, bs.worker
+        FROM estimated_locations el
+        JOIN beacon_scanners bs ON el.scanner_id = bs.id
+        WHERE el.send_flag = FALSE
+        ORDER BY el.timestamp ASC
+        LIMIT 18;
+    `;
     connection.query(query, callback);
 };
 

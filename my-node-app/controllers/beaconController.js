@@ -3,7 +3,7 @@
 const connection = require('../config/db');
 
 exports.addCurrentRSSI = (req, res) => {
-    const { macAddress, rssi, deviceId, number } = req.body;
+    const { macAddress, rssi, deviceId, azimuth } = req.body;
 
     // fixed_beacons 테이블에서 해당 macAddress와 일치하는 beacon ID 가져오기
     const query1 = 'SELECT id FROM fixed_beacons WHERE mac_address = ?';
@@ -40,15 +40,27 @@ exports.addCurrentRSSI = (req, res) => {
             const scannerId = results[0].id;
 
             // current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
-            const query3 = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi) VALUES (?, ?, ?)';
-            connection.query(query3, [scannerId, fixedBeaconId, rssi], (error, results) => {
+            // const query3 = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi) VALUES (?, ?, ?)';
+            // connection.query(query3, [scannerId, fixedBeaconId, rssi], (error, results) => {
+            //     if (error) {
+            //         console.error('데이터 삽입 오류:', error);
+            //         res.status(500).send('Internal Server Error');
+            //         return;
+            //     }
+
+            //     console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId ,'번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId , '번');
+            //     res.status(200).send('Data inserted successfully');
+            // });
+            // current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
+            const query3 = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi, direction) VALUES (?, ?, ?, ?)';
+            connection.query(query3, [scannerId, fixedBeaconId, rssi, direction], (error, results) => {
                 if (error) {
                     console.error('데이터 삽입 오류:', error);
                     res.status(500).send('Internal Server Error');
                     return;
                 }
 
-                console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId ,'번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId , '번');
+                console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId, '번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId, '번\n방향 : ', direction);
                 res.status(200).send('Data inserted successfully');
             });
         });
