@@ -40,7 +40,7 @@ function setupWebSocketClient() {
     // Socket.IO 서버 설정 (HTTP 서버에 연결)
     const ioServer = socketIO(server, {
         cors: {
-            origin: "http://localhost:3000", // 클라이언트 주소
+            origin: "http://localhost:3001", // 클라이언트 주소
             methods: ["GET", "POST"]
         }
     });

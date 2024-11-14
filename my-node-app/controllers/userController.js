@@ -1,26 +1,38 @@
-const users = []; // 예시 데이터베이스 (실제 구현에서는 DB 사용)
-
-// 회원가입 로직
-exports.register = (req, res) => {
-    const { username, password, role } = req.body;
-
-    // 간단한 유효성 검사
-    if (!username || !password || !role) {
-        return res.status(400).json({ message: '모든 필드를 입력해주세요.' });
-    }
-
-    users.push({ username, password, role });
-    res.status(201).json({ message: `${role} 회원가입 성공` });
-};
+const connection = require('../config/db');
 
 // 로그인 로직
 exports.login = (req, res) => {
-    const { username, password, role } = req.body;
-    const user = users.find(u => u.username === username && u.password === password && u.role === role);
+    const { username, password } = req.body;
 
-    if (!user) {
-        return res.status(400).json({ message: '아이디 또는 비밀번호가 잘못되었습니다.' });
+    try {
+        // DB에서 해당 username의 사용자 정보를 가져오기
+        connection.query('SELECT * FROM users WHERE username = ?', [username], (error, results) => {
+            if (error) {
+                console.error(error);
+                console.log("로그인 실패\n");
+                return res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+            }
+
+            // 사용자가 존재하지 않는 경우
+            if (results.length === 0) {
+                console.log("로그인 실패 : 해당 아이디 존재하지 않음\n");
+                return res.status(400).json({ message: '아이디 또는 비밀번호가 잘못되었습니다.' });
+            }
+
+            const user = results[0];
+
+            // 비밀번호 비교
+            if (password !== user.password) {
+                console.log("로그인 실패 :  비밀번호 불일치\n");
+                return res.status(400).json({ message: '아이디 또는 비밀번호가 잘못되었습니다.' });
+            }
+
+            // 로그인 성공
+            console.log("로그인 성공\n");
+            res.status(200).json({ message: 'SUCCESS' });
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: '서버 오류가 발생했습니다.' });
     }
-
-    res.status(200).json({ message: `${role} 로그인 성공` });
 };

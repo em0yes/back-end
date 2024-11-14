@@ -1,12 +1,12 @@
+// routes/workerRoutes.js
 const express = require('express');
 const router = express.Router();
-const userController = require('../controllers/userController');
-
+const workerController = require('../controllers/workerController');
 
 // 작업자 검색
-router.post('/search', userController.login);
+router.get('/search', workerController.searchWorker);
 
-// 스캐너-작업자 매핑
-router.post('/setworker', userController.login)
+// 스캐너 - 작업자 매핑
+router.patch('/setworker', workerController.setWorker);
 
 module.exports = router;
