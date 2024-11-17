@@ -39,7 +39,7 @@ exports.addCurrentRSSI = (req, res) => {
 
             const scannerId = results[0].id;
 
-            current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
+            //current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
             const query3 = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi) VALUES (?, ?, ?)';
             connection.query(query3, [scannerId, fixedBeaconId, rssi], (error, results) => {
                 if (error) {
@@ -51,7 +51,7 @@ exports.addCurrentRSSI = (req, res) => {
                 console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId ,'번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId , '번');
                 res.status(200).send('Data inserted successfully');
             });
-            current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
+            //current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
             
             
             

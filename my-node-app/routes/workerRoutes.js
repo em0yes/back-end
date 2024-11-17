@@ -7,6 +7,7 @@ const workerController = require('../controllers/workerController');
 router.get('/search', workerController.searchWorker);
 
 // 스캐너 - 작업자 매핑
-router.patch('/setworker', workerController.setWorker);
+router.patch('/saveworker', workerController.saveWorker);
+router.get('/setworker', workerController.getWorkerMapping);
 
 module.exports = router;

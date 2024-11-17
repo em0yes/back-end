@@ -12,23 +12,28 @@ exports.searchWorker = (req, res) => {
         }
 
         if (results.length === 0) {
+            console.log("해당 작업자가 존재하지 않습니다.");
             return res.status(404).json({ message: '해당 작업자와 연결된 비콘 스캐너가 없습니다.' });
         }
 
         const scannerId = results[0].id;
 
-        // estimated_locations 테이블에서 해당 scanner_id의 최신 레코드 조회
+        // estimated_locations 테이블에서 해당 scanner_id의 최신 레코드 조회 (2분 이내)
         connection.query(
-            'SELECT scanner_id, floor, zone, timestamp FROM estimated_locations WHERE scanner_id = ? ORDER BY timestamp DESC LIMIT 1',
+            `SELECT scanner_id, floor, zone, timestamp
+             FROM estimated_locations
+             WHERE scanner_id = ? AND timestamp >= (NOW() - INTERVAL 2 MINUTE)
+             ORDER BY timestamp DESC LIMIT 1`,
             [scannerId],
             (error, locationResults) => {
                 if (error) {
-                    console.error(error);
+                    console.error('서버 오류가 발생했습니다.');
                     return res.status(500).json({ message: '서버 오류가 발생했습니다.' });
                 }
 
                 if (locationResults.length === 0) {
-                    return res.status(404).json({ message: '해당 스캐너 ID의 위치 정보가 없습니다.' });
+                    console.log('해당 스캐너 ID의 2분 이내 위치 정보가 없습니다.');
+                    return res.status(404).json({ message: '해당 스캐너 ID의 2분 이내 위치 정보가 없습니다.' });
                 }
 
                 res.status(200).json({ scanner: locationResults[0] });
@@ -37,9 +42,26 @@ exports.searchWorker = (req, res) => {
     });
 };
 
+// 스캐너 - 작업자 매핑(get 요청)
+exports.getWorkerMapping = (req, res) => {
+    connection.query('SELECT id, worker FROM beacon_scanners', (error, results) => {
+        if (error) {
+            console.error(error);
+            return res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+        }
 
-// 스캐너 - 작업자 매핑
-exports.setWorker = (req, res) => {
+        if (results.length === 0) {
+            console.error('비콘 스캐너 정보가 없습니다.');
+            return res.status(404).json({ message: '비콘 스캐너 정보가 없습니다.' });
+        }
+        console.log("스캐너아이디 -  작업자 : ", results);
+        res.status(200).json(results);
+    });
+};
+
+
+// 스캐너 - 작업자 매핑 수정(==save)
+exports.saveWorker = (req, res) => {
     console.log(req.body);
     const { scanner_id, worker } = req.body;
     console.log("스캐너 아이디: ", scanner_id, "\n작업자: ", worker);
