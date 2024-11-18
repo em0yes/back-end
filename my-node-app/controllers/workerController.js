@@ -36,7 +36,7 @@ exports.searchWorker = (req, res) => {
                     return res.status(404).json({ message: '해당 스캐너 ID의 2분 이내 위치 정보가 없습니다.' });
                 }
 
-                res.status(200).json({ scanner: locationResults[0] });
+                res.status(200).json({ scanner: locationResults[0], worker: worker });
             }
         );
     });
