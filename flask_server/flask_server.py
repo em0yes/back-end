@@ -15,19 +15,15 @@ socketio = SocketIO(app, cors_allowed_origins="*")  # 모든 출처 허용
 print(f"현재 실행 경로: {os.getcwd()}")
 # 현재 실행 경로 확인
 base_path = os.path.dirname(os.path.realpath(__file__))  # 현재 파일의 절대 경로
-model_path = os.path.join(base_path, 'RF_model1009.pkl')
-encoder_path = os.path.join(base_path, 'RF_encoder1009.pkl')
+model_path = os.path.join(base_path, 'train_model_nodir.pkl')
 
 
 print(f"모델 파일 경로: {model_path}")  # 경로가 올바른지 출력
-print(f"인코더 파일 경로: {encoder_path}")  
 
-# 모델과 인코더 로드
+# 모델로드
 with open(model_path, 'rb') as model_file:
     model = pickle.load(model_file)
 
-with open(encoder_path, 'rb') as encoder_file:
-    label_encoder = pickle.load(encoder_file)
 
 @app.route('/')
 def index():
