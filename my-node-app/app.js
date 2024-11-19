@@ -6,7 +6,7 @@ const http = require('http');
 const setupWebSocketClient = require('./utils/websocketClient.js'); // Web 클라이언트와의 WebSocket 서버
 const setupWebSocketFlask = require('./utils/websocketFlask.js'); // 수정된 웹소켓 클라이언트 모듈 불러오기
 const cors = require('cors');
-
+const path = require('path')
 const app = express();
 
 app.use(cors());
@@ -16,8 +16,13 @@ app.use('/api/admin', require('./routes/adminRoutes.js')); // 사용자 관련 A
 app.use('/api/worker', require('./routes/workerRoutes.js')); // 사용자 관련 API 라우트
 
 
-// public 폴더의 파일을 정적 파일로 제공
-app.use(express.static('public'));
+// 프론트엔드 정적 파일 제공
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 모든 라우트를 프론트엔드로 전달
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 app.get('/', (req, res) => {
     res.send('BeaconMap 애플리케이션이 실행 중입니다.');
