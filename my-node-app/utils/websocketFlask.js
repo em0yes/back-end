@@ -42,7 +42,7 @@ function setupWebSocketFlask() {
                                 //scannerQueues[scanner_id].shift();
                                 //scannerQueues[scanner_id].shift();
 
-                                scannerQueues[scanner_id].splice(0, 2); // 0번 인덱스부터 두 개의 데이터 제거
+                                scannerQueues[scanner_id].splice(0, 10); // 0번 인덱스부터 두 개의 데이터 제거
 
                             }
                         });
@@ -96,7 +96,7 @@ function sendToFlask(socket, queue) {
     });
 
     const beaconData = JSON.stringify(transformedData);
-    console.log(`스캐너 ${queue[0].scanner_id}의 데이터를 Flask로 전송 중:`, beaconData);
+    console.log(`스캐너 ${queue[0].scanner_id}의 데이터를 Flask로 전송 중`);
     socket.emit('message', beaconData);
 
     // 데이터 전송 후 `send_flag`를 true로 업데이트
