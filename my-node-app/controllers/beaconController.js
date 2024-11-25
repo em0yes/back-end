@@ -1,71 +1,101 @@
-//addCurrentRSSI 
-//수신데이터를 current_rssi_measurements에 insert하는 작업
 const connection = require('../config/db');
+const mergeData = require('../utils/mergeData');
+const { scannerQueues, mergedDataQueues } = require('../utils/queues');
 
-exports.addCurrentRSSI = (req, res) => {
+
+function handleIncomingData(scannerId, data) {
+    // scannerQueues 초기화
+    if (!scannerQueues[scannerId]) {
+        scannerQueues[scannerId] = [];
+    }
+
+    // scannerQueues에 데이터 추가
+    scannerQueues[scannerId].push(data);
+    console.log(`📥 스캐너 ${scannerId}의 현재 큐:`, scannerQueues[scannerId]);
+
+    // 병합 조건: 4개 이상일 때 병합
+    if (scannerQueues[scannerId].length >= 4) {
+        const dataToMerge = scannerQueues[scannerId].splice(0, 4); // 4개를 추출 후 제거
+        const mergedData = mergeData(dataToMerge);
+
+        // 병합된 데이터를 mergedDataQueues에 추가
+        if (!mergedDataQueues[scannerId]) {
+            mergedDataQueues[scannerId] = [];
+        }
+        mergedDataQueues[scannerId].push(mergedData);
+
+        console.log(`✅ 병합된 데이터가 큐에 추가됨:`, mergedData);
+        // 병합된 데이터 총 개수 출력
+        const totalMergedDataCount = Object.values(mergedDataQueues).reduce(
+            (count, queue) => count + queue.length,
+            0
+        );
+        console.log(`📊 현재까지 병합된 총 데이터 개수: ${totalMergedDataCount}`);
+    } else {
+        console.log(`📋 병합 조건 미달: 스캐너 ${scannerId}의 데이터 수: ${scannerQueues[scannerId].length}`);
+    }
+}
+
+
+// `addCurrentRSSI` 함수 내부에서 호출
+exports.addCurrentRSSI = async (req, res) => {
     const { macAddress, rssi, deviceId, azimuth } = req.body;
 
-    // fixed_beacons 테이블에서 해당 macAddress와 일치하는 beacon ID 가져오기
-    const query1 = 'SELECT id FROM fixed_beacons WHERE mac_address = ?';
-    connection.query(query1, [macAddress], (error, results) => {
-        if (error) {
-            console.error('Fixed beacon 조회 오류:', error);
-            res.status(500).send('Internal Server Error');
-            return;
-        }
+    try {
+        const scannerId = await getScannerId(deviceId);
+        const fixedBeaconId = await getFixedBeaconId(macAddress);
+        const insertResult = await insertRSSIMeasurement(scannerId, fixedBeaconId, rssi);
 
-        if (results.length === 0) {
-            console.error('고정 비콘을 찾을 수 없습니다.');
-            res.status(404).send('Fixed beacon not found');
-            return;
-        }
+        console.log(`✅ 데이터 삽입 성공: 스캐너 ID: ${scannerId}, 비콘 ID: ${fixedBeaconId}, RSSI: ${rssi}`);
 
-        const fixedBeaconId = results[0].id;
+        // 병합 로직 호출
+        handleIncomingData(scannerId, {
+            id: insertResult.insertId,
+            scanner_id: scannerId,
+            fixed_beacon_id: fixedBeaconId,
+            rssi: rssi,
+            timestamp: new Date(),
+        });
 
-        // beacon_scanners 테이블에서 해당 deviceId와 일치하는 scanner ID 가져오기
-        const query2 = 'SELECT id FROM beacon_scanners WHERE mac_address = ?';
-        connection.query(query2, [deviceId], (error, results) => {
-            if (error) {
-                console.error('Beacon scanner 조회 오류:', error);
-                res.status(500).send('Internal Server Error');
-                return;
-            }
+        res.status(200).send('Data inserted and queued successfully');
+    } catch (error) {
+        console.error('❌ 처리 중 오류 발생:', error.message);
+        res.status(500).send('Internal Server Error');
+    }
+};
 
-            if (results.length === 0) {
-                console.error('Beacon scanner를 찾을 수 없습니다.');
-                res.status(404).send('Beacon scanner not found');
-                return;
-            }
 
-            const scannerId = results[0].id;
 
-            //current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
-            const query3 = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi) VALUES (?, ?, ?)';
-            connection.query(query3, [scannerId, fixedBeaconId, rssi], (error, results) => {
-                if (error) {
-                    console.error('데이터 삽입 오류:', error);
-                    res.status(500).send('Internal Server Error');
-                    return;
-                }
-
-                console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId ,'번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId , '번');
-                res.status(200).send('Data inserted successfully');
-            });
-            //current_rssi_measurements 테이블에 데이터 삽입 (중복 처리 없이 단순 삽입)
-            
-            
-            
-            // const query3 = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi, direction) VALUES (?, ?, ?, ?)';
-            // connection.query(query3, [scannerId, fixedBeaconId, rssi, direction], (error, results) => {
-            //     if (error) {
-            //         console.error('데이터 삽입 오류:', error);
-            //         res.status(500).send('Internal Server Error');
-            //         return;
-            //     }
-
-            //     console.log('current_rssi_measurements 테이블에 데이터 삽입 성공:\n', fixedBeaconId, '번 비콘 : ', rssi, '\n비콘 스캐너 : ', scannerId, '번\n방향 : ', direction);
-            //     res.status(200).send('Data inserted successfully');
-            // });
+// 고정 비콘 ID 조회 함수
+const getFixedBeaconId = (macAddress) => {
+    return new Promise((resolve, reject) => {
+        const query = 'SELECT id FROM fixed_beacons WHERE mac_address = ?';
+        connection.query(query, [macAddress], (error, results) => {
+            if (error) return reject(error);
+            resolve(results.length > 0 ? results[0].id : null);
         });
     });
 };
+
+// 스캐너 ID 조회 함수
+const getScannerId = (deviceId) => {
+    return new Promise((resolve, reject) => {
+        const query = 'SELECT id FROM beacon_scanners WHERE mac_address = ?';
+        connection.query(query, [deviceId], (error, results) => {
+            if (error) return reject(error);
+            resolve(results.length > 0 ? results[0].id : null);
+        });
+    });
+};
+
+// current_rssi_measurements 테이블에 데이터 삽입 함수
+const insertRSSIMeasurement = (scannerId, fixedBeaconId, rssi) => {
+    return new Promise((resolve, reject) => {
+        const query = 'INSERT INTO current_rssi_measurements (scanner_id, fixed_beacon_id, rssi) VALUES (?, ?, ?)';
+        connection.query(query, [scannerId, fixedBeaconId, rssi], (error, results) => {
+            if (error) return reject(error);
+            resolve(results);
+        });
+    });
+};
+

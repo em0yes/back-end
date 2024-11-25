@@ -5,8 +5,9 @@ import os
 import json
 import pickle
 import numpy as np
-import pandas as pd
 from pykalman import KalmanFilter
+from gevent import pywsgi
+from geventwebsocket.handler import WebSocketHandler
 
 app = Flask(__name__)
 CORS(app)
@@ -14,115 +15,96 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 모델 로드
 base_path = os.path.dirname(os.path.realpath(__file__))
-model_path = os.path.join(base_path, 'train_model_nodir.pkl')
-
+model_path = os.path.join(base_path, 'best_rf_model.pkl')
 try:
     print(f"모델 파일 경로: {model_path}")
     with open(model_path, 'rb') as model_file:
         model = pickle.load(model_file)
-except Exception as e:
-    print(f"모델 로드 중 오류 발생: {str(e)}")
+except FileNotFoundError:
+    print(f"모델 파일을 찾을 수 없습니다: {model_path}")
     model = None
 
-# 칼만 필터 생성 함수
-def create_kalman_filter(state_mean=-65, state_covariance=1, obs_covariance=0.3, trans_covariance=0.3):
-    return KalmanFilter(
-        initial_state_mean=state_mean,
-        initial_state_covariance=state_covariance,
-        transition_matrices=[[1]],
-        observation_matrices=[[1]],
-        observation_covariance=obs_covariance,
-        transition_covariance=trans_covariance
-    )
+class RSSIProcessor:
+    def __init__(self):
+        self.kalman_filters = None
 
-# 칼만 필터 적용 함수
-def apply_kalman_filter(series, kf):
-    series_filtered = series.replace(0, np.nan)
-    if series_filtered.dropna().empty:
-        return pd.Series([-200], index=series.index)
-    filtered_state_means, _ = kf.smooth(series_filtered.dropna().values)
-    filtered_series = pd.Series(filtered_state_means.flatten(), index=series_filtered.dropna().index)
-    filtered_series = filtered_series.reindex(series.index).interpolate().fillna(-200).round(2)
-    return filtered_series
+    def initialize_kalman_filters(self, num_beacons):
+        self.kalman_filters = [KalmanFilter(initial_state_mean=0, n_dim_obs=1) for _ in range(num_beacons)]
 
-# 지수 이동평균 함수
-def exponential_moving_average(data, alpha=0.2):
-    filtered_data = [data.iloc[0]]  # 첫 번째 값 유지
-    for i in range(1, len(data)):
-        new_value = alpha * data.iloc[i] + (1 - alpha) * filtered_data[i - 1]
-        filtered_data.append(new_value)
-    return pd.Series(filtered_data, index=data.index)
+    def apply_kalman_filter(self, data):
+        if data.shape[1] != len(self.kalman_filters):
+            print("칼만 필터 초기화")
+            self.initialize_kalman_filters(data.shape[1])
+        filtered_data = []
+        for i, kf in enumerate(self.kalman_filters):
+            beacon_data = data[:, i]
+            mask = beacon_data != 0
+            if np.any(mask):
+                try:
+                    smoothed_state_means, _ = kf.em(beacon_data[mask], n_iter=1).smooth(beacon_data[mask])
+                    filtered_column = np.full(beacon_data.shape, -200.0)
+                    filtered_column[mask] = smoothed_state_means.flatten()
+                except Exception as e:
+                    print(f"Kalman filter failed: {e}")
+                    filtered_column = np.full(beacon_data.shape, -200.0)
+            else:
+                filtered_column = np.full(beacon_data.shape, -200.0)
+            filtered_data.append(filtered_column)
+        return np.array(filtered_data).T
 
-# 정규화 함수
-def custom_normalization(data, min_value=-200, max_value=-40):
-    return (data - min_value) / (max_value - min_value)
+    @staticmethod
+    def custom_normalization(data, min_value=-200, max_value=0):
+        return (data - min_value) / (max_value - min_value)
 
-# 데이터 처리 함수 (테스트 코드에서 이동 평균, 칼만 필터, 정규화까지 반영)
-def process_data(df):
-    # 이동 평균 계산 (최근 10개 데이터 기준)
-    for col in ['B1', 'B2', 'B3', 'B4', 'B5']:
-        rolling_mean = df[col].rolling(window=10, min_periods=1).mean()
-        rolling_mean = rolling_mean.apply(lambda x: -200 if x == 0 else x)  # 평균값이 0이면 -200으로 대체
-        df[col] = rolling_mean
+class RealTimeProcessor:
+    def __init__(self, window_size):
+        self.window_size = window_size
+        self.buffer = []
+        self.rssi_processor = RSSIProcessor()
 
-    # 칼만 필터 및 지수 이동평균 적용
-    for col in ['B1', 'B2', 'B3', 'B4', 'B5']:
-        initial_mean = df[col].replace(0, np.nan).dropna().iloc[0] if not df[col].replace(0, np.nan).dropna().empty else -65
-        kf = create_kalman_filter(state_mean=initial_mean)
-        filtered_series = apply_kalman_filter(df[col], kf)
-        df[col] = exponential_moving_average(filtered_series, alpha=0.2)
+    def process_data(self, data):
+        self.buffer.extend(data)
+        if len(self.buffer) >= self.window_size:
+            current_window = self.buffer[-self.window_size:]
+            try:
+                rssi_data = np.array([[d.get(f'B{i+1}', -200) for i in range(5)] for d in current_window])
+                filtered_rssi = self.rssi_processor.apply_kalman_filter(rssi_data)
+                normalized_rssi = self.rssi_processor.custom_normalization(filtered_rssi)
+                return normalized_rssi
+            except Exception as e:
+                print(f"Data processing error: {e}")
+                return None
+        return None
 
-    # 정규화 적용
-    for col in ['B1', 'B2', 'B3', 'B4', 'B5']:
-        df[col] = custom_normalization(df[col])
-
-    return df
+real_time_processor = RealTimeProcessor(window_size=10)
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    print('클라이언트 연결됨')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('클라이언트 연결 해제됨')
 
 @socketio.on('message')
 def handle_message(message):
     try:
         data = json.loads(message)
         if isinstance(data, list) and len(data) > 0:
-            feature_names = ['B1', 'B2', 'B3', 'B4', 'B5']
-            df = pd.DataFrame(data)
-
-            # 데이터 확인
-            # print(f"Received DataFrame: {df}")
-
-            # 데이터 전처리
-            df = process_data(df)
-            # 각 컬럼의 평균 계산
-            averaged_row = df[feature_names].mean().to_frame().T
-            averaged_row['scanner_id'] = df['scanner_id'].iloc[0]  # 동일한 scanner_id 사용
-            averaged_row['TimeStamp'] = df['TimeStamp'].iloc[-1]  # 가장 최근 타임스탬프 사용
-
-            # 모델 예측
-            model_input = averaged_row[feature_names].fillna(0)  # 모델에 필요한 입력값 구성
-            predicted_zone = model.predict(model_input)
-            predicted_zone = int(predicted_zone)  # NumPy 데이터를 Python int로 변환
-            result = {
-                'scanner_id': int(averaged_row['scanner_id'].iloc[0]),  # 필요한 경우 int 변환
-                'floor': 3,  # 하드코딩된 층 정보
-                'zone': predicted_zone,
-                'timestamp': str(averaged_row['TimeStamp'].iloc[0])  # 날짜를 문자열로 변환
-            }
-
-            # 예측 결과 출력
-            print(f"Predicted Zone: {predicted_zone}")
-
-            emit('message', json.dumps(result))
-        else:
-            print("Received invalid data structure or empty list.")
+            processed_data = real_time_processor.process_data(data)
+            if processed_data is not None:
+                prediction = model.predict([processed_data.flatten()])[0]
+                result = {
+                    'scanner_id': data[-1].get('scanner_id', -1),
+                    'floor': 3,
+                    'zone': int(prediction),
+                    'timestamp': data[-1].get('TimeStamp', 'unknown')
+                }
+                emit('message', json.dumps(result))
+            else:
+                print("Not enough data for prediction.")
     except Exception as e:
-        print(f"An error occurred during processing: {str(e)}")
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Client disconnected')
+        print(f"Error during message handling: {e}")
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000)
