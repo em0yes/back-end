@@ -1,104 +1,137 @@
 const io = require('socket.io-client');
 const Beacon = require('../models/beaconQuery'); // DB 쿼리 함수
-const { mergedDataQueues } = require('../utils/queues'); // 큐 가져오기
 
+const scannerQueues = {};  // scanner_id별로 원본 데이터를 저장할 객체
+const mergedQueues = {};   // scanner_id별로 병합된 데이터를 저장할 객체
+
+// Socket.IO 클라이언트 설정
 function setupWebSocketFlask() {
-    const socket = io('http://localhost:5000'); // Flask Socket.IO 서버 연결
+    const socket = io('http://localhost:5000');  // Flask Socket.IO 서버 연결
 
-    // WebSocket 연결 성공
-    socket.on('connect', () => {
+    socket.on('connect', () => { 
         console.log('🌵 Flask Socket.IO 서버에 연결되었습니다 🌵');
 
-        // 병합된 데이터를 Flask로 전송
-        setInterval(() => {
-            for (const scannerId in mergedDataQueues) {
-                const queue = mergedDataQueues[scannerId];
-                if (queue.length >= 10) {
-                    const dataToSend = queue.slice(0, 10); // 큐의 첫 10개를 가져옴
-                    sendToFlask(socket, dataToSend, scannerId, () => {
-                        // 전송 성공 후 데이터 제거
-                        mergedDataQueues[scannerId] = queue.slice(10); // 전송된 10개 제거
-                        console.log(`♻️ 스캐너 ${scannerId}의 큐 상태:`, mergedDataQueues[scannerId].length);
-                    });
-                } else {
-                    console.log(`📋 병합된 데이터가 부족함: 스캐너 ${scannerId}의 데이터 수: ${queue.length}`);
-                }
+        // 주기적으로 DB에서 새로운 데이터를 확인
+        setInterval(async () => {
+            try {
+                Beacon.getUnsentData((err, result) => {
+                    if (err) {
+                        console.error('데이터 가져오기 중 오류 발생:', err);
+                        return;
+                    }
+
+                    if (result.length > 0) {
+                        result.forEach(row => {
+                            const scanner_id = row.scanner_id;
+                            if (!scannerQueues[scanner_id]) {
+                                scannerQueues[scanner_id] = [];
+                            }
+                            if (!mergedQueues[scanner_id]) {
+                                mergedQueues[scanner_id] = [];
+                            }
+
+                            // 같은 데이터가 큐에 이미 있는지 확인하여 중복 삽입 방지
+                            if (!scannerQueues[scanner_id].some(item => item.id === row.id)) {
+                                scannerQueues[scanner_id].push(row);
+                                console.log(`스캐너 ${scanner_id}에 데이터 추가됨:`, row);
+
+                                // 4개의 데이터가 쌓이면 병합
+                                if (scannerQueues[scanner_id].length >= 4) {
+                                    const mergedData = mergeData(scannerQueues[scanner_id].splice(0, 4));
+                                    console.log(`스캐너 ${scanner_id}에서 병합된 데이터 생성:`, mergedData);
+                                    mergedQueues[scanner_id].push(mergedData);
+                                }
+                            }
+
+                            // 병합된 데이터가 10개 이상이면 Flask로 전송
+                            if (mergedQueues[scanner_id].length >= 10) {
+                                console.log(`스캐너 ${scanner_id}의 병합된 데이터 10개를 Flask로 전송합니다.`);
+                                sendToFlask(socket, mergedQueues[scanner_id].splice(0, 10), scanner_id);
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error('데이터 처리 중 오류 발생:', error);
             }
-        }, 1000); // 1초마다 실행
+        }, 1000); // 1초마다 새로운 데이터 확인
     });
 
-    // WebSocket 연결 끊김
-    socket.on('disconnect', () => {
-        console.warn('❌ Flask WebSocket 서버와의 연결이 끊어졌습니다.');
-        
-        // 연결 재시도
-        setTimeout(() => {
-            console.log('🔄 Flask WebSocket 서버에 재연결 시도 중...');
-            socket.connect();
-        }, 1000); // 1초 후 재시도
-    });
-
-    // WebSocket 연결 오류 처리
-    socket.on('connect_error', (error) => {
-        console.error('❌ Flask WebSocket 서버 연결 오류:', error.message);
-    });
-
-    // Flask로부터의 메시지 처리
     socket.on('message', (data) => {
-        const predictedData = JSON.parse(data);
-        console.log('🥑 Flask로부터 받은 예측 결과:', predictedData.zone);
-
-        // 예측 결과를 DB에 저장
+        const predictedData = JSON.parse(data); 
+        console.log('🥑 Flask로부터 받은 예측 결과:', predictedData.zone, '🥑' );
         Beacon.insertEstimatedLocation({
             scanner_id: predictedData.scanner_id,
             floor: predictedData.floor,
             zone: predictedData.zone,
-            timestamp: new Date(),
+            timestamp: new Date()
         }, (err) => {
             if (err) {
                 console.error('estimated_locations 테이블에 삽입 중 오류 발생:', err);
-            } else {
-                console.log(`✅ 스캐너 ${predictedData.scanner_id}의 예측 결과가 DB에 저장되었습니다.`);
             }
         });
     });
+
+    socket.on('close', () => {
+        console.log('Flask WebSocket 서버와의 연결이 종료되었습니다.');
+    });
+
+    socket.on('error', (error) => {
+        console.error('WebSocket 오류 발생:', error);
+    });
 }
 
-// Flask로 데이터 전송 함수
-function sendToFlask(socket, queue, scannerId, callback) {
-    if (!socket.connected) {
-        console.warn('❌ Flask WebSocket 서버와 연결이 끊어져 데이터 전송 불가');
+// 병합 로직: 4개의 데이터를 병합하여 하나의 데이터로 생성
+function mergeData(dataRows) {
+    const merged = { timestamp: dataRows[0].timestamp }; // 첫 번째 데이터의 timestamp 사용
+    const beaconKeys = ['B1', 'B2', 'B3', 'B4', 'B5'];
+
+    beaconKeys.forEach(key => {
+        // 각 열에 대해 최신값으로 업데이트
+        let latestValue = -200; // 기본값 -200 (RSSI에서 신호가 없는 상태를 의미)
+        dataRows.forEach(row => {
+            if (row.fixed_beacon_id === parseInt(key.replace('B', '')) && row.rssi !== 0) {
+                latestValue = row.rssi; // 최신값으로 업데이트
+            }
+        });
+        merged[key] = latestValue;
+    });
+
+    return merged;
+}
+
+// Flask 서버로 데이터 전송
+function sendToFlask(socket, mergedDataQueue, scanner_id) {
+    // JSON 데이터 생성
+    const dataToSend = {
+        scanner_id: scanner_id,
+        data: mergedDataQueue  // 병합된 데이터
+    };
+
+    const beaconData = JSON.stringify(dataToSend);
+    console.log(`📡 스캐너 ${scanner_id}의 병합된 데이터를 Flask로 전송 중:`, beaconData);
+
+    // Flask 서버로 데이터 전송
+    socket.emit('message', beaconData);
+
+    // 데이터 전송 후 `send_flag`를 true로 업데이트
+    const ids = mergedDataQueue.flatMap(row => row.ids || []); // 병합 시 포함된 원본 데이터 ID
+
+    if (ids.length === 0) {
+        console.log(`⚠️ 스캐너 ${scanner_id}: 업데이트할 ID가 없습니다. send_flag 업데이트를 건너뜁니다.`);
         return;
     }
 
-    if (!queue || queue.length === 0) {
-        console.warn('❌ 전송할 데이터가 없습니다.');
-        return;
-    }
-
-    console.log(`📤 Flask로 보낼 데이터 (${queue.length}개):`, queue);
-
-    const beaconData = JSON.stringify(queue);
-
-    socket.emit('message', beaconData, (ack) => {
-        if (ack) {
-            console.log(`✅ Flask에서 데이터 수신 확인`);
-
-            // send_flag 업데이트
-            const ids = queue.map(row => row.id);
-            Beacon.updateSendFlag(ids, (updateErr) => {
-                if (updateErr) {
-                    console.error('❌ send_flag 업데이트 중 오류 발생:', updateErr);
-                } else {
-                    console.log(`♻️ send_flag 업데이트 완료 (ID: ${ids})`);
-                }
-            });
-
-            if (callback) callback();
+    Beacon.updateSendFlag(ids, (updateErr) => {
+        if (updateErr) {
+            console.error(`❌ 스캐너 ${scanner_id}: send_flag 업데이트 중 오류 발생:`, updateErr);
         } else {
-            console.warn(`❌ Flask 응답 없음. 데이터 전송 실패.`);
+            console.log(`✅ 스캐너 ${scanner_id}: send_flag가 다음 ID에 대해 업데이트됨: ${ids}`);
         }
     });
 }
+
+
+
 
 module.exports = setupWebSocketFlask;
