@@ -6,8 +6,7 @@ import json
 import pickle
 import numpy as np
 from pykalman import KalmanFilter
-from gevent import pywsgi
-from geventwebsocket.handler import WebSocketHandler
+
 
 app = Flask(__name__)
 CORS(app)
