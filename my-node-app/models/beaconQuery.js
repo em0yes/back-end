@@ -4,7 +4,7 @@ const Beacon = {};
 
 // 전송되지 않은 비콘 데이터를 가져오는 함수
 Beacon.getUnsentData = (callback) => {
-    const query = 'SELECT * FROM current_rssi_measurements WHERE send_flag = FALSE ORDER BY timestamp ASC LIMIT 18';
+    const query = 'SELECT * FROM current_rssi_measurements WHERE send_flag = FALSE ORDER BY timestamp ASC LIMIT 4';
     connection.query(query, callback);
 };
 
